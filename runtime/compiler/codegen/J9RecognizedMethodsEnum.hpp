@@ -63,6 +63,7 @@
    java_lang_Class_isIdentity,
    java_lang_Class_getComponentType,
    java_lang_Class_getModifiersImpl,
+   java_lang_Class_getStackClass,
    java_lang_Class_getSuperclass,
    java_lang_Class_isAssignableFrom,
    java_lang_Class_isInstance,
@@ -460,6 +461,7 @@
    jdk_internal_misc_Unsafe_copyMemory0,
    jdk_internal_loader_NativeLibraries_load,
    jdk_internal_util_ArraysSupport_vectorizedMismatch,
+   jdk_internal_util_ArraysSupport_vectorizedHashCode,
    jdk_internal_util_Preconditions_checkIndex,
 
    FirstVectorMethod,
@@ -834,6 +836,10 @@
    java_math_BigInteger_add,
    java_math_BigInteger_subtract,
    java_math_BigInteger_multiply,
+   java_math_BigInteger_init_long,
+   java_math_BigInteger_toByteArray,
+   java_math_BigInteger_stripLeadingZeroBytes1,
+   java_math_BigInteger_stripLeadingZeroBytes2,
 
    java_text_NumberFormat_format,
 
@@ -1043,7 +1049,6 @@
    java_lang_invoke_Invokers_checkCustomized,
    java_lang_invoke_Invokers_checkExactType,
    java_lang_invoke_Invokers_getCallSiteTarget,
-   java_lang_invoke_Invokers_directVarHandleTarget,
    java_lang_invoke_Invokers_checkVarHandleGenericType,
    java_lang_invoke_MethodHandle_doCustomizationLogic,
    java_lang_invoke_MethodHandle_asType,

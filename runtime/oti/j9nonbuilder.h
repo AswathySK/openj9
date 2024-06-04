@@ -338,6 +338,52 @@ struct J9UpcallNativeSignature;
 struct J9VMContinuation;
 #endif /* JAVA_SPEC_VERSION >= 19 */
 
+#if defined(J9VM_OPT_JFR)
+
+typedef struct J9JFRBufferWalkState {
+	U_8 *current;
+	U_8 *end;
+} J9JFRBufferWalkState;
+
+typedef struct J9JFRBuffer {
+	UDATA bufferSize;
+	UDATA bufferRemaining;
+	U_8 *bufferStart;
+	U_8 *bufferCurrent;
+} J9JFRBuffer;
+
+/* JFR event structures */
+
+#define J9FR_EVENT_COMMON_FIELDS \
+	I_64 time; \
+	UDATA eventType; \
+	struct J9VMThread *vmThread;
+
+typedef struct J9JFREvent {
+	J9FR_EVENT_COMMON_FIELDS
+} J9JFREvent;
+
+/* Variable-size structure - stackTraceSize worth of UDATA follow the fixed portion */
+typedef struct J9JFRExecutionSample {
+	J9FR_EVENT_COMMON_FIELDS
+	UDATA threadState;
+	UDATA stackTraceSize;
+} J9JFRExecutionSample;
+
+#define J9JFREXECUTIONSAMPLE_STACKTRACE(jfrEvent) ((UDATA*)(((J9JFRExecutionSample*)(jfrEvent)) + 1))
+
+/* Variable-size structure - stackTraceSize worth of UDATA follow the fixed portion */
+typedef struct J9JFRThreadStart {
+	J9FR_EVENT_COMMON_FIELDS
+	struct J9VMThread *thread;
+	struct J9VMThread *parentThread;
+	UDATA stackTraceSize;
+} J9JFRThreadStart;
+
+#define J9JFRTHREADSTART_STACKTRACE(jfrEvent) ((UDATA*)(((J9JFRThreadStart*)(jfrEvent)) + 1))
+
+#endif /* defined(J9VM_OPT_JFR) */
+
 /* @ddr_namespace: map_to_type=J9CfrError */
 
 /* Jazz 82615: Both errorPC (current pc value) and errorFrameBCI (bci value in the stack map frame)
@@ -937,7 +983,8 @@ typedef struct J9CudaGlobals {
 typedef enum J9SharedClassCacheMode {
 	J9SharedClassCacheBootstrapOnly,
 	J9SharedClassCacheBoostrapAndExtension,
-	J9SharedClassCacheUserDefined
+	J9SharedClassCacheClassesWithCPInfo,
+	J9SharedClassCacheClassesAllLoaders
 } J9SharedClassCacheMode;
 
 typedef struct J9SharedClassTransaction {
@@ -1261,6 +1308,7 @@ typedef struct J9SharedCacheAPI {
 	char* modContext;
 	char* expireTime;
 	U_64 runtimeFlags;
+	U_64 runtimeFlags2;
 	UDATA verboseFlags;
 	UDATA cacheType;
 	UDATA parseResult;
@@ -1299,6 +1347,7 @@ typedef struct J9SharedClassConfig {
 	struct J9ClassPathEntry* lastBootstrapCPE;
 	void* bootstrapCPI;
 	U_64 runtimeFlags;
+	U_64 runtimeFlags2;
 	UDATA verboseFlags;
 	UDATA findClassCntr;
 	omrthread_monitor_t configMonitor;
@@ -2294,11 +2343,15 @@ typedef struct J9ROMMethodHandleRef {
 #define MN_TRUSTED_FINAL	0x00200000
 #define MN_HIDDEN_MEMBER	0x00400000
 #if defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES)
-#define MN_FLATTENED		0x00800000
-#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
-
+#define MN_FLAT_FIELD		0x00800000
+#define MN_NULL_RESTRICTED	0x01000000
+#define MN_REFERENCE_KIND_SHIFT		26
+/* (flag >> MN_REFERENCE_KIND_SHIFT) & MN_REFERENCE_KIND_MASK */
+#define MN_REFERENCE_KIND_MASK		(0x3C000000 >> MN_REFERENCE_KIND_SHIFT)
+#else /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
 #define MN_REFERENCE_KIND_SHIFT	24
 #define MN_REFERENCE_KIND_MASK	0xF		/* (flag >> MN_REFERENCE_KIND_SHIFT) & MN_REFERENCE_KIND_MASK */
+#endif /* defined(J9VM_OPT_VALHALLA_FLATTENABLE_VALUE_TYPES) */
 
 typedef struct J9ROMMethodRef {
 	U_32 classRefCPIndex;
@@ -4236,6 +4289,9 @@ typedef struct J9DelayedLockingOpertionsRecord {
 #define J9VM_CRAC_IS_CHECKPOINT_ENABLED 0x80
 #define J9VM_CRIU_SUPPORT_DEBUG_ON_RESTORE 0x100
 
+/* matches maximum count defined by JDWP in threadControl.c */
+#define J9VM_CRIU_MAX_DEBUG_THREADS_STORED 10
+
 typedef struct J9CRIUCheckpointState {
 	U_32 flags;
 #if JAVA_SPEC_VERSION >= 20
@@ -4286,6 +4342,9 @@ typedef struct J9CRIUCheckpointState {
 	char *cracCheckpointToDir;
 #endif /* defined(J9VM_OPT_CRAC_SUPPORT) */
 	U_32 requiredGhostFileLimit;
+	/* the array of threads is updated by the JDWP agent */
+	jthread javaDebugThreads[J9VM_CRIU_MAX_DEBUG_THREADS_STORED];
+	UDATA javaDebugThreadCount;
 } J9CRIUCheckpointState;
 #endif /* defined(J9VM_OPT_CRIU_SUPPORT) */
 
@@ -4707,7 +4766,7 @@ typedef struct J9InternalVMFunctions {
 	UDATA  ( *hashClassTableDelete)(struct J9ClassLoader *classLoader, U_8 *className, UDATA classNameLength) ;
 	void  ( *hashClassTableReplace)(struct J9VMThread* vmThread, struct J9ClassLoader *classLoader, struct J9Class *originalClass, struct J9Class *replacementClass) ;
 	struct J9ObjectMonitor *  ( *monitorTableAt)(struct J9VMThread* vmStruct, j9object_t object) ;
-	struct J9VMThread*  ( *allocateVMThread)(struct J9JavaVM * vm, omrthread_t osThread, UDATA privateFlags, void * memorySpace, J9Object * threadObject) ;
+	struct J9VMThread*  ( *allocateVMThread)(struct J9JavaVM *vm, omrthread_t osThread, UDATA privateFlags, void *memorySpace, J9Object *threadObject) ;
 	void  ( *deallocateVMThread)(struct J9VMThread * vmThread, UDATA decrementZombieCount, UDATA sendThreadDestroyEvent) ;
 	struct J9MemorySegment*  ( *allocateMemorySegment)(struct J9JavaVM *javaVM, UDATA size, UDATA type, U_32 memoryCategory) ;
 	IDATA  ( *javaThreadProc)(void *entryarg) ;
@@ -5206,33 +5265,6 @@ typedef struct J9VMContinuation {
 } J9VMContinuation;
 #endif /* JAVA_SPEC_VERSION >= 19 */
 
-typedef struct J9JFRThreadData {
-	UDATA bufferSize;
-	UDATA bufferRemaining;
-	U_8 *bufferStart;
-	U_8 *bufferCurrent;
-} J9JFRThreadData;
-
-/* JFR event structures */
-
-#define J9FR_EVENT_COMMON_FIELDS \
-	I_64 time; \
-	UDATA eventType; \
-	UDATA threadState; \
-	struct J9VMThread *vmThread;
-
-typedef struct J9JFREvent {
-	J9FR_EVENT_COMMON_FIELDS
-} J9JFREvent;
-
-/* Variable-size structure - stackTraceSize worth of UDATA follow the fixed portion */
-typedef struct J9JFRExecutionSample {
-	J9FR_EVENT_COMMON_FIELDS
-	UDATA stackTraceSize;
-} J9JFRExecutionSample;
-
-#define J9JFREXECUTIONSAMPLE_STACKTRACE(sample) ((UDATA*)(((J9JFRExecutionSample*)(sample)) + 1))
-
 /* @ddr_namespace: map_to_type=J9VMThread */
 
 typedef struct J9VMThread {
@@ -5472,7 +5504,7 @@ typedef struct J9VMThread {
 	UDATA safePointCount;
 	struct J9HashTable * volatile utfCache;
 #if defined(J9VM_OPT_JFR)
-	J9JFRThreadData jfrData;
+	J9JFRBuffer jfrBuffer;
 #endif /* defined(J9VM_OPT_JFR) */
 #if JAVA_SPEC_VERSION >= 16
 	U_64 *ffiArgs;
@@ -6083,6 +6115,10 @@ typedef struct J9JavaVM {
 	/* Pool for allocating J9MemberNameListNode. */
 	struct J9Pool *memberNameListNodePool;
 #endif /* defined(J9VM_OPT_OPENJDK_METHODHANDLE) */
+#if defined(J9VM_OPT_JFR)
+	J9JFRBuffer jfrBuffer;
+	omrthread_monitor_t jfrBufferMutex;
+#endif /* defined(J9VM_OPT_JFR) */
 #if JAVA_SPEC_VERSION >= 22
 	omrthread_monitor_t closeScopeMutex;
 	UDATA closeScopeNotifyCount;

@@ -4255,7 +4255,7 @@ TR::Register *J9::Power::TreeEvaluator::VMifInstanceOfEvaluator(TR::Node *node, 
          }
       depIndex = numberOfRegisterCandidate(cg, depNode, TR_GPR) + numberOfRegisterCandidate(cg, depNode, TR_FPR) +
                  numberOfRegisterCandidate(cg, depNode, TR_CCR) + numberOfRegisterCandidate(cg, depNode, TR_VRF) +
-	         numberOfRegisterCandidate(cg, depNode, TR_VSX_SCALAR) + numberOfRegisterCandidate(cg, depNode, TR_VSX_VECTOR);
+                 numberOfRegisterCandidate(cg, depNode, TR_VSX_SCALAR) + numberOfRegisterCandidate(cg, depNode, TR_VSX_VECTOR);
       }
 
    doneLabel = generateLabelSymbol(cg);
@@ -5536,7 +5536,6 @@ static void genHeapAlloc(TR::Node *node, TR::Instruction *&iCursor, TR_OpaqueCla
       if (usingTLH)
          {
          bool sizeInReg = (isVariableLen || (allocSize > UPPER_IMMED));
-         bool shouldAlignToCacheBoundary = false;
          int32_t instanceBoundaryForAlignment = 64;
 
          static bool verboseDualTLH = feGetEnv("TR_verboseDualTLH") != NULL;
@@ -5572,78 +5571,14 @@ static void genHeapAlloc(TR::Node *node, TR::Instruction *&iCursor, TR_OpaqueCla
          //TODO: This code is never executed, check if this can be deleted now.
          if (!cg->isDualTLH())
             {
-            //All of this code never gets executed because of the 0 && in
-            //the inside if statement. Candidate for deletion
+            iCursor = generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, node, resReg,
+                  TR::MemoryReference::createWithDisplacement(cg, metaReg, offsetof(J9VMThread, heapAlloc), TR::Compiler->om.sizeofReferenceAddress()), iCursor);
 
-            if (!isVariableLen)
-               {
-               static char *disableAlign = feGetEnv("TR_DisableAlignAlloc");
-
-               if (0 && !disableAlign && (node->getOpCodeValue() == TR::New) && (comp->getMethodHotness() >= hot || node->shouldAlignTLHAlloc()))
-                  {
-                  TR_OpaqueMethodBlock *ownMethod = node->getOwningMethod();
-
-                  TR::Node *classChild = node->getFirstChild();
-                  char * className = NULL;
-                  TR_OpaqueClassBlock *clazz = NULL;
-
-                  if (classChild && classChild->getSymbolReference() && !classChild->getSymbolReference()->isUnresolved())
-                     {
-                     TR::SymbolReference *symRef = classChild->getSymbolReference();
-                     TR::Symbol *sym = symRef->getSymbol();
-
-                     if (sym && sym->getKind() == TR::Symbol::IsStatic && sym->isClassObject())
-                        {
-                        TR::StaticSymbol * staticSym = symRef->getSymbol()->castToStaticSymbol();
-                        void * staticAddress = staticSym->getStaticAddress();
-                        if (symRef->getCPIndex() >= 0)
-                           {
-                           if (!staticSym->addressIsCPIndexOfStatic() && staticAddress)
-                              {
-                              int32_t len;
-                              className = TR::Compiler->cls.classNameChars(comp, symRef, len);
-                              clazz = (TR_OpaqueClassBlock *) staticAddress;
-                              }
-                           }
-                        }
-                     }
-
-                  int32_t instanceSizeForAlignment = 56;
-                  static char *alignSize = feGetEnv("TR_AlignInstanceSize");
-                  static char *alignBoundary = feGetEnv("TR_AlignInstanceBoundary");
-
-                  if (alignSize)
-                     instanceSizeForAlignment = atoi(alignSize);
-                  if (alignBoundary)
-                     instanceBoundaryForAlignment = atoi(alignBoundary);
-
-                  if (clazz && !cg->getCurrentEvaluationBlock()->isCold() && TR::Compiler->cls.classInstanceSize(clazz) >= instanceSizeForAlignment)
-                     {
-                     shouldAlignToCacheBoundary = true;
-
-                     iCursor = generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, node, temp1Reg,
-                           TR::MemoryReference::createWithDisplacement(cg, metaReg, offsetof(J9VMThread, heapAlloc), TR::Compiler->om.sizeofReferenceAddress()), iCursor);
-
-                     iCursor = generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, resReg, temp1Reg, instanceBoundaryForAlignment - 1, iCursor);
-                     if (comp->target().is64Bit())
-                        iCursor = generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldicr, node, resReg, resReg, 0, int64_t(-instanceBoundaryForAlignment), iCursor);
-                     else
-                        iCursor = generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, resReg, resReg, 0, -instanceBoundaryForAlignment, iCursor);
-                     }
-                  }
-               }
-
-            if (!shouldAlignToCacheBoundary)
-               {
-               iCursor = generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, node, resReg,
-                     TR::MemoryReference::createWithDisplacement(cg, metaReg, offsetof(J9VMThread, heapAlloc), TR::Compiler->om.sizeofReferenceAddress()), iCursor);
-               }
             iCursor = generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, node, heapTopReg,
                   TR::MemoryReference::createWithDisplacement(cg, metaReg, offsetof(J9VMThread, heapTop), TR::Compiler->om.sizeofReferenceAddress()), iCursor);
 
             if (needZeroInit)
                iCursor = generateTrg1ImmInstruction(cg, TR::InstOpCode::li, node, zeroReg, 0, iCursor);
-
             }
          else
             {
@@ -5815,15 +5750,9 @@ static void genHeapAlloc(TR::Node *node, TR::Instruction *&iCursor, TR_OpaqueCla
          else
             iCursor = generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, temp2Reg, resReg, allocSize, iCursor);
 
-         //TODO: shouldAlignToCacheBoundary is never true, check its effects here.
-         int32_t padding = shouldAlignToCacheBoundary ? instanceBoundaryForAlignment : 0;
-
-         if (!isVariableLen && ((uint32_t) allocSize + padding) > maxSafeSize)
+         if (!isVariableLen && ((uint32_t) allocSize) > maxSafeSize)
             {
-            if (!shouldAlignToCacheBoundary)
-               iCursor = generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, node, condReg, temp2Reg, resReg, iCursor);
-            else
-               iCursor = generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, node, condReg, temp2Reg, temp1Reg, iCursor);
+            iCursor = generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, node, condReg, temp2Reg, resReg, iCursor);
             iCursor = generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, callLabel, condReg, iCursor);
             }
 
@@ -5847,53 +5776,6 @@ static void genHeapAlloc(TR::Node *node, TR::Instruction *&iCursor, TR_OpaqueCla
          //branch to regular heapAlloc Snippet if we overflow (ie callLabel).
          iCursor = generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, node, condReg, temp2Reg, heapTopReg, iCursor);
          iCursor = generateConditionalBranchInstruction(cg, TR::InstOpCode::bgt, node, callLabel, condReg, iCursor);
-
-         //TODO: this code is never executed, check if we can remove this now.
-         if (!cg->isDualTLH())
-            {
-            //shouldAlignToCacheBoundary is false at definition at the top, and
-            //the only codepoint where its set to true is never executed
-            //so this looks like a candidate for deletion.
-            if (shouldAlignToCacheBoundary)
-               {
-               TR::LabelSymbol *doneAlignLabel = generateLabelSymbol(cg);
-               TR::LabelSymbol *multiSlotGapLabel = generateLabelSymbol(cg);
-               ;
-               iCursor = generateTrg1Src2Instruction(cg, TR::InstOpCode::subf, node, dataSizeReg, temp1Reg, resReg, iCursor);
-
-               if (sizeInReg)
-                  iCursor = generateTrg1Src2Instruction(cg, TR::InstOpCode::add, node, sizeReg, dataSizeReg, sizeReg, iCursor);
-               else
-                  iCursor = generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, sizeReg, dataSizeReg, allocSize, iCursor);
-
-               sizeInReg = true;
-
-               iCursor = generateTrg1Src1ImmInstruction(cg,TR::InstOpCode::Op_cmpli, node, condReg, dataSizeReg, sizeof(uintptr_t), iCursor);
-               iCursor = generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, doneAlignLabel, condReg, iCursor);
-               iCursor = generateConditionalBranchInstruction(cg, TR::InstOpCode::bgt, node, multiSlotGapLabel, condReg, iCursor);
-               iCursor = generateTrg1ImmInstruction(cg, TR::InstOpCode::li, node, dataSizeReg, J9_GC_SINGLE_SLOT_HOLE, iCursor);
-
-               if (comp->target().is64Bit() && fej9->generateCompressedLockWord())
-                  {
-                  iCursor = generateMemSrc1Instruction(cg, TR::InstOpCode::stw, node, TR::MemoryReference::createWithDisplacement(cg, temp1Reg, 0, 4), dataSizeReg, iCursor);
-                  iCursor = generateMemSrc1Instruction(cg, TR::InstOpCode::stw, node, TR::MemoryReference::createWithDisplacement(cg, temp1Reg, 4, 4), dataSizeReg, iCursor);
-                  }
-               else
-                  {
-                  iCursor = generateMemSrc1Instruction(cg,TR::InstOpCode::Op_st, node, TR::MemoryReference::createWithDisplacement(cg, temp1Reg, 0, TR::Compiler->om.sizeofReferenceAddress()), dataSizeReg,
-                        iCursor);
-                  }
-
-               iCursor = generateLabelInstruction(cg, TR::InstOpCode::b, node, doneAlignLabel, iCursor);
-               iCursor = generateLabelInstruction(cg, TR::InstOpCode::label, node, multiSlotGapLabel, iCursor);
-               iCursor = generateMemSrc1Instruction(cg,TR::InstOpCode::Op_st, node, TR::MemoryReference::createWithDisplacement(cg, temp1Reg, TR::Compiler->om.sizeofReferenceAddress(), TR::Compiler->om.sizeofReferenceAddress()),
-                     dataSizeReg, iCursor);
-               iCursor = generateTrg1ImmInstruction(cg, TR::InstOpCode::li, node, dataSizeReg, J9_GC_MULTI_SLOT_HOLE, iCursor);
-               iCursor = generateMemSrc1Instruction(cg,TR::InstOpCode::Op_st, node, TR::MemoryReference::createWithDisplacement(cg, temp1Reg, 0, TR::Compiler->om.sizeofReferenceAddress()), dataSizeReg,
-                     iCursor);
-               iCursor = generateLabelInstruction(cg, TR::InstOpCode::label, node, doneAlignLabel, iCursor);
-               }
-            }
 
          if (cg->enableTLHPrefetching())
             {
@@ -10862,12 +10744,13 @@ static TR::Register *inlineIntrinsicIndexOf_P10(TR::Node *node, TR::CodeGenerato
    generateTrg1Src1Instruction(cg, TR::InstOpCode::extsw, node, position, offset);
    generateTrg1Src1Instruction(cg, TR::InstOpCode::extsw, node, endPos, length);
 
-   // sanity check : if str isLatin1, then ch should be isLatin1 too.
+   /*
+    * Zero out upper bits. ch is later compared against values loaded by lbzx.
+    * Comparison expect bits other than the lowest 8 bits are zero.
+    */
    if (isLatin1)
       {
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, temp, ch, 24, 0xFF);
-      generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, cr6, temp, 0);
-      generateConditionalBranchInstruction(cg, TR::InstOpCode::bne, node, endLabel, cr6);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, ch, ch, 0, 0xFF);
       }
 
 
@@ -11360,6 +11243,387 @@ static TR::Register *inlineIntrinsicIndexOf(TR::Node *node, TR::CodeGenerator *c
    return result;
    }
 
+static bool inlineIntrinsicInflate(TR::Node *node, TR::CodeGenerator *cg)
+   {
+   static bool disableStringInflateIntrinsic = feGetEnv("TR_DisableStringInflateIntrinsic") != NULL;
+   if (disableStringInflateIntrinsic)
+      {
+      return false;
+      }
+
+   TR_ASSERT_FATAL(cg->getSupportsInlineStringLatin1Inflate(), "This evaluator should only be triggered when inlining StringLatin1.inflate([BI[CII)V is enabled on Java 11 onwards!\n");
+
+   TR::Compilation *comp = cg->comp();
+   bool isAtLeastP9 = comp->target().cpu.isAtLeast(OMR_PROCESSOR_PPC_P9);
+   bool isLE = comp->target().cpu.isLittleEndian();
+
+   TR::Register *inputAddressReg = cg->gprClobberEvaluate(node->getChild(0));
+   TR::Register *inputOffsetReg = cg->gprClobberEvaluate(node->getChild(1));
+   TR::Register *outputAddressReg = cg->gprClobberEvaluate(node->getChild(2));
+   TR::Register *outputOffsetReg = cg->gprClobberEvaluate(node->getChild(3));
+   TR::Register *remainingReg = cg->gprClobberEvaluate(node->getChild(4));
+
+   TR::Register *tempReg = inputOffsetReg;
+   TR::Register *maskReg = outputOffsetReg;
+
+   TR::Register *vec1Reg = cg->allocateRegister(TR_VRF);
+   TR::Register *vec2Reg = cg->allocateRegister(TR_VRF);
+   TR::Register *constZeroVecReg = cg->allocateRegister(TR_VRF);
+   TR::Register *constNeg16VecReg = (isLE && !isAtLeastP9) ? cg->allocateRegister(TR_VRF) : nullptr;
+
+   TR::Register *condReg = cg->allocateRegister(TR_CCR);
+
+   TR::LabelSymbol *startLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol *load16LoopLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol *load8Label = generateLabelSymbol(cg);
+   TR::LabelSymbol *load4Label = generateLabelSymbol(cg);
+   TR::LabelSymbol *load1Label = generateLabelSymbol(cg);
+   TR::LabelSymbol *doneLabel = generateLabelSymbol(cg);
+
+   int32_t numRegs = constNeg16VecReg ? 10 : 9;
+   TR::RegisterDependencyConditions *dependencies = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, numRegs, cg->trMemory());
+   dependencies->addPostCondition(inputAddressReg, TR::RealRegister::NoReg);
+   dependencies->getPostConditions()->getRegisterDependency(0)->setExcludeGPR0();
+   dependencies->addPostCondition(inputOffsetReg, TR::RealRegister::NoReg);
+   dependencies->addPostCondition(outputAddressReg, TR::RealRegister::NoReg);
+   dependencies->getPostConditions()->getRegisterDependency(2)->setExcludeGPR0();
+   dependencies->addPostCondition(outputOffsetReg, TR::RealRegister::NoReg);
+   dependencies->addPostCondition(remainingReg, TR::RealRegister::NoReg);
+   dependencies->getPostConditions()->getRegisterDependency(4)->setExcludeGPR0();
+   dependencies->addPostCondition(vec1Reg, TR::RealRegister::NoReg);
+   dependencies->addPostCondition(vec2Reg, TR::RealRegister::NoReg);
+   dependencies->addPostCondition(constZeroVecReg, TR::RealRegister::NoReg);
+   if (constNeg16VecReg)
+      {
+      dependencies->addPostCondition(constNeg16VecReg, TR::RealRegister::NoReg);
+      }
+   dependencies->addPostCondition(condReg, TR::RealRegister::cr0);
+
+   cg->generateDebugCounter(TR::DebugCounter::debugCounterName(comp, "inlineIntrinsicInflate/(%s)", comp->signature()));
+
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, startLabel, NULL);
+   startLabel->setStartInternalControlFlow();
+
+   /* If remainingReg equals 0, there is no work to be done. Immediate jump to the end. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 0);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, condReg);
+
+   /*
+    * Determine the address of the first byte to read either by loading from dataAddr or adding the header size.
+    * This is followed by adding in the offset.
+    */
+#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+   if (TR::Compiler->om.isOffHeapAllocationEnabled())
+      {
+      generateTrg1MemInstruction(cg, TR::InstOpCode::ld, node, inputAddressReg, TR::MemoryReference::createWithDisplacement(cg, inputAddressReg, TR::Compiler->om.offsetOfContiguousDataAddrField(), 8));
+      }
+   else
+#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+      {
+      generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, inputAddressReg, inputAddressReg, TR::Compiler->om.contiguousArrayHeaderSizeInBytes());
+      }
+
+   generateTrg1Src2Instruction(cg, TR::InstOpCode::add, node, inputAddressReg, inputAddressReg, inputOffsetReg);
+
+   /*
+    * Determine the address of the first char to store either by loading from dataAddr or adding the header size.
+    * This is followed by adding in the offset twice due to being char data.
+    */
+#if defined(J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION)
+   if (TR::Compiler->om.isOffHeapAllocationEnabled())
+      {
+      generateTrg1MemInstruction(cg, TR::InstOpCode::ld, node, outputAddressReg, TR::MemoryReference::createWithDisplacement(cg, outputAddressReg, TR::Compiler->om.offsetOfContiguousDataAddrField(), 8));
+      }
+   else
+#endif /* J9VM_GC_ENABLE_SPARSE_HEAP_ALLOCATION */
+      {
+      generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, outputAddressReg, outputAddressReg, TR::Compiler->om.contiguousArrayHeaderSizeInBytes());
+      }
+
+   generateShiftLeftImmediate(cg, node, outputOffsetReg, outputOffsetReg, 1);
+   generateTrg1Src2Instruction(cg, TR::InstOpCode::add, node, outputAddressReg, outputAddressReg, outputOffsetReg);
+
+   /* If 1-3 bytes remain, jump to load1Label to handle them by by byte. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 4);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, load1Label, condReg);
+
+   /* If 4-7 bytes remain, first jump to load4Label to handle the first 4 bytes. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 8);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, load4Label, condReg);
+
+   /* Initialize constZeroVecReg to all 0s. This is needed in the 8 byte and 16 byte load cases. */
+   generateTrg1ImmInstruction(cg, TR::InstOpCode::vspltisw, node, constZeroVecReg, 0);
+   if (isLE && !isAtLeastP9)
+      {
+      /*
+       * Initialize constNeg16VecReg to [-16, -16, -16, -16].
+       * This vector is used to fix the order of bytes during processing.
+       * It is only used under Little endian on Power 8.
+       * This is needed in the 8 byte and 16 byte load cases.
+       */
+      generateTrg1ImmInstruction(cg, TR::InstOpCode::vspltisw, node, constNeg16VecReg, -16);
+      }
+
+   /* If 8-15 bytes remain, first jump to load8Label to handle the first 8 bytes. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 16);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, load8Label, condReg);
+
+   /* Initialize ctr with the number of 16 byte loads that can be performed. */
+   generateShiftRightLogicalImmediate(cg, node, tempReg, remainingReg, 4);
+   generateSrc1Instruction(cg, TR::InstOpCode::mtctr, node, tempReg);
+
+   /* Initialize tempReg to 16. This is used to store at an offset of 16. */
+   generateTrg1ImmInstruction(cg, TR::InstOpCode::li, node, tempReg, 16);
+
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, load16LoopLabel, NULL);
+
+   /*
+    * 16 byte load section
+    * Power9 BE case:
+    *   lxvb16x  vec1Reg, r0, inputAddressReg        //eg. vec1Reg = 01020304_05060708_090a0b0c_0d0e0f10
+    *   vmrghb   vec2Reg, constZeroVecReg, vec1Reg   //Interlaces 0x00 to convert the bytes to char, vec2Reg = 0x00010002_00030004_00050006_00070008
+    *   stxvb16x vec2Reg, r0, outputAddressReg       //Stores vec2Reg to memory. 00 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08
+    *   vmrglb   vec1Reg, constZeroVecReg, vec1Reg   //Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x0009000a_000b000c_000d000e_000f0010
+    *   stxvb16x vec1Reg, outputAddressReg, tempReg  //Stores vec1Reg to memory. 00 09 00 0a 00 0b 00 0c 00 0d 00 0e 00 0f 00 10
+    * Power9 LE case:
+    *   lxvb16x  vec1Reg, r0, inputAddressReg        //eg. vec1Reg = 01020304_05060708_090a0b0c_0d0e0f10
+    *   vmrghb   vec2Reg, vec1Reg, constZeroVecReg   //Interlaces 0x00 to convert the bytes to char, vec2Reg = 0x01000200_03000400_05000600_07000800
+    *   stxvb16x vec2Reg, r0, outputAddressReg       //Stores vec2Reg to memory. 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08 00
+    *   vmrglb   vec1Reg, vec1Reg, constZeroVecReg   //Interlaces 0x00 to convert the bytes to char, vec2Reg = 0x09000a00_0b000c00_0d000e00_0f001000
+    *   stxvb16x vec1Reg, outputAddressReg, tempReg  //Stores vec1Reg to memory. 09 00 0a 00 0b 00 0c 00 0d 00 0e 00 0f 00 10 00
+    * Power8 BE case:
+    *   lxvw4x   vec1Reg, r0, inputAddressReg        //eg. vec1Reg = 01020304_05060708_090a0b0c_0d0e0f10
+    *   vmrghb   vec2Reg, constZeroVecReg, vec1Reg   //Interlaces 0x00 to convert the bytes to char, vec2Reg = 0x00010002_00030004_00050006_00070008
+    *   stxvw4x  vec2Reg, r0, outputAddressReg       //Stores vec2Reg to memory. 00 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08
+    *   vmrglb   vec1Reg, constZeroVecReg, vec1Reg   //Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x0009000a_000b000c_000d000e_000f0010
+    *   stxvw4x  vec1Reg, outputAddressReg, tempReg  //Stores vec1Reg to memory. 00 09 00 0a 00 0b 00 0c 00 0d 00 0e 00 0f 00 10
+    * Power8 LE case:
+    *   lxvw4x   vec1Reg, r0, inputAddressReg        //eg. vec1Reg = 0x04030201_08070605_0c0b0a09_100f0e0d, LE load mixes up the byte order.
+    *   vrlw     vec1Reg, vec1Reg, constNeg16VecReg  //Rotate by -16, vec1Reg = 0x02010403_06050807_0a090c0b_0e0d100f
+    *   vmrghb   vec2Reg, constZeroVecReg, vec1Reg   //Interlaces 0x00 to convert the bytes to char, vec2Reg = 0x00020001_00040003_00060005_00080007
+    *   stxvw4x  vec2Reg, r0, outputAddressReg       //This puts the chars in the right order in memory. 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08 00
+    *   vmrglb   vec1Reg, constZeroVecReg, vec1Reg   //Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x000a0009_000c000b_000e000d_0010000f
+    *   stxvw4x  vec1Reg, outputAddressReg, tempReg  //This puts the chars in the right order in memory. 09 00 0a 00 0b 00 0c 00 0d 00 0e 00 0f 00 10 00
+    */
+   if (isAtLeastP9)
+      {
+      generateTrg1MemInstruction(cg, TR::InstOpCode::lxvb16x, node, vec1Reg, TR::MemoryReference::createWithIndexReg(cg, NULL, inputAddressReg, 16));
+      }
+   else
+      {
+      generateTrg1MemInstruction(cg, TR::InstOpCode::lxvw4x, node, vec1Reg, TR::MemoryReference::createWithIndexReg(cg, NULL, inputAddressReg, 16));
+
+      if (isLE)
+         {
+         generateTrg1Src2Instruction(cg, TR::InstOpCode::vrlw, node, vec1Reg, vec1Reg, constNeg16VecReg);
+         }
+      }
+
+   if (isLE && isAtLeastP9)
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vmrghb, node, vec2Reg, vec1Reg, constZeroVecReg);
+      }
+   else
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vmrghb, node, vec2Reg, constZeroVecReg, vec1Reg);
+      }
+
+   if (isAtLeastP9)
+      {
+      generateMemSrc1Instruction(cg, TR::InstOpCode::stxvb16x, node, TR::MemoryReference::createWithIndexReg(cg, NULL, outputAddressReg, 16), vec2Reg);
+      }
+   else
+      {
+      generateMemSrc1Instruction(cg, TR::InstOpCode::stxvw4x, node, TR::MemoryReference::createWithIndexReg(cg, NULL, outputAddressReg, 16), vec2Reg);
+      }
+
+   if (isLE && isAtLeastP9)
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vmrglb, node, vec1Reg, vec1Reg, constZeroVecReg);
+      }
+   else
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vmrglb, node, vec1Reg, constZeroVecReg, vec1Reg);
+      }
+
+   if (isAtLeastP9)
+      {
+      generateMemSrc1Instruction(cg, TR::InstOpCode::stxvb16x, node, TR::MemoryReference::createWithIndexReg(cg, outputAddressReg, tempReg, 16), vec1Reg);
+      }
+   else
+      {
+      generateMemSrc1Instruction(cg, TR::InstOpCode::stxvw4x, node, TR::MemoryReference::createWithIndexReg(cg, outputAddressReg, tempReg, 16), vec1Reg);
+      }
+
+   /* 16 bytes were loaded and 32 bytes were stored so bump up inputAddressReg and outputAddressReg by those amounts. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, inputAddressReg, inputAddressReg, 16);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, outputAddressReg, outputAddressReg, 32);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::bdnz, node, load16LoopLabel, condReg);
+
+   /* Update remainingReg to account for all the possible 16 byte loads being done by the vector loop */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::andi_r, node, remainingReg, remainingReg, condReg, 0xF);
+
+   /* If remainingReg is 0, jump to the end. */
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, condReg);
+
+   /* If 1-3 bytes remain, jump to load1Label to handle them by by byte. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 4);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, load1Label, condReg);
+
+   /* If 4-7 bytes remain, first jump to load4Label to handle the first 4 bytes. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 8);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, load4Label, condReg);
+
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, load8Label, NULL);
+
+   /* 8 byte load section
+    * Power9 BE case:
+    *   ldx      tempReg, NULL, inputAddressReg      // eg. tempReg = 0x01020304_05060708
+    *   mtvsrd   vec1Reg, tempReg                    // Move data into vector reg. vec1Reg = 0x01020304_05060708_XXXXXXXX_XXXXXXXX
+    *   vmrghb   vec1Reg, constZeroVecReg, vec1Reg   // Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x00010002_00030004_00050006_00070008
+    *   stxvb16x vec1Reg, NULL, outputAddressReg     // Stores vec1Reg to memory. 00 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08
+    * Power9 LE case:
+    *   ldbrx    tempReg, NULL, inputAddressReg      // eg. tempReg = 0x01020304_05060708
+    *   mtvsrd   vec1Reg, tempReg                    // Move data into vector reg. vec1Reg = 0x01020304_05060708_XXXXXXXX_XXXXXXXX
+    *   vmrghb   vec1Reg, vec1Reg, constZeroVecReg   // Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x01000200_03000400_05000600_07000800
+    *   stxvb16x vec1Reg, NULL, outputAddressReg     // Stores vec1Reg to memory. 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08 00
+    * Power8 BE case:
+    *   ldx      tempReg, NULL, inputAddressReg      // eg. tempReg = 0x01020304_05060708
+    *   mtvsrd   vec1Reg, tempReg                    // Move data into vector reg. vec1Reg = 0x01020304_05060708_XXXXXXXX_XXXXXXXX
+    *   vmrghb   vec1Reg, constZeroVecReg, vec1Reg   // Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x00010002_00030004_00050006_00070008
+    *   stxvw4x  vec1Reg, NULL, outputAddressReg     // Stores vec1Reg to memory. 00 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08
+    * Power8 LE case:
+    *   ldbrx    tempReg, NULL, inputAddressReg      // eg. tempReg = 0x01020304_05060708
+    *   mtvsrd   vec1Reg, tempReg                    // Move data into vector reg. vec1Reg = 0x01020304_05060708_XXXXXXXX_XXXXXXXX
+    *   vmrghb   vec1Reg, constZeroVecReg, vec1Reg   // Interlaces 0x00 to convert the bytes to char, vec1Reg = 0x00010002_00030004_00050006_00070008
+    *   vrlw     vec1Reg, vec1Reg, constNeg16VecReg  // Rotate by -16 to adjust byte order for stxvw4x. vec1Reg = 0x00020001_00040003_00060005_00080007
+    *   stxvw4x  vec1Reg, NULL, outputAddressReg     // Stores vec1Reg to memory. 01 00 02 00 03 00 04 00 05 00 06 00 07 00 08 00
+    */
+   if (isLE)
+      {
+      generateTrg1MemInstruction(cg, TR::InstOpCode::ldbrx, node, tempReg, TR::MemoryReference::createWithIndexReg(cg, NULL, inputAddressReg, 8));
+      }
+   else
+      {
+      generateTrg1MemInstruction(cg, TR::InstOpCode::ldx, node, tempReg, TR::MemoryReference::createWithIndexReg(cg, NULL, inputAddressReg, 8));
+      }
+   generateTrg1Src1Instruction(cg, TR::InstOpCode::mtvsrd, node, vec1Reg, tempReg);
+   if (isLE && isAtLeastP9)
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vmrghb, node, vec1Reg, vec1Reg, constZeroVecReg);
+      }
+   else
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vmrghb, node, vec1Reg, constZeroVecReg, vec1Reg);
+      }
+
+   if (isLE && !isAtLeastP9)
+      {
+      generateTrg1Src2Instruction(cg, TR::InstOpCode::vrlw, node, vec1Reg, vec1Reg, constNeg16VecReg);
+      }
+
+   if (isAtLeastP9)
+      {
+      generateMemSrc1Instruction(cg, TR::InstOpCode::stxvb16x, node, TR::MemoryReference::createWithIndexReg(cg, NULL, outputAddressReg, 16), vec1Reg);
+      }
+   else
+      {
+      generateMemSrc1Instruction(cg, TR::InstOpCode::stxvw4x, node, TR::MemoryReference::createWithIndexReg(cg, NULL, outputAddressReg, 16), vec1Reg);
+      }
+
+   /* Update remainingReg, jump to the end if 0. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, remainingReg, remainingReg, -8);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 0);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, condReg);
+
+   /* 8 bytes were loaded and 16 bytes were stored so bump up inputAddressReg and outputAddressReg by those amounts. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, inputAddressReg, inputAddressReg, 8);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, outputAddressReg, outputAddressReg, 16);
+
+   /* If 1-3 bytes remain, jump to load1Label to handle them by by byte. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 4);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::blt, node, load1Label, condReg);
+
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, load4Label, NULL);
+
+   /*
+    * 4 byte load section
+    * BE case:
+    *   lwzx     tempReg, NULL, inputAddressReg              //eg. tempReg = 0xXXXXXXXX01020304
+    *   //initialze maskReg here
+    *   rldimi   tempReg, tempReg, 24, 0x00ffffffff000000    //    tempReg = 0xXX01XXXXXX020304
+    *   rldimi   tempReg, tempReg, 16, 0x000000ffffff0000    //    tempReg = 0xXX01XX02XXXX0304
+    *   rldimi   tempReg, tempReg,  8, 0x0000000000ffff00    //    tempReg = 0xXX01XX02XX03XX04
+    *   and      tempReg, tempReg, maskReg                   //    tempReg = 0x0001000200030004
+    *   stdx     tempReg, NULL, outputAddressReg             // Stores tempReg to memory: 00 01 00 02 00 03 00 04
+    * LE case:
+    *   lwzx     tempReg, NULL, inputAddressReg              //eg. tempReg = 0xXXXXXXXX04030201
+    *   //initialze maskReg here
+    *   rldimi   tempReg, tempReg, 24, 0x00ffffffff000000    //    tempReg = 0xXX04XXXXXX030201
+    *   rldimi   tempReg, tempReg, 16, 0x000000ffffff0000    //    tempReg = 0xXX04XX03XXXX0201
+    *   rldimi   tempReg, tempReg,  8, 0x0000000000ffff00    //    tempReg = 0xXX04XX03XX02XX01
+    *   and      tempReg, tempReg, maskReg                   //    tempReg = 0x0004000300020001
+    *   stdx     tempReg, NULL, outputAddressReg             // Stores tempReg to memory: 01 00 02 00 03 00 04 00
+    */
+   generateTrg1MemInstruction(cg, TR::InstOpCode::lwzx, node, tempReg, TR::MemoryReference::createWithIndexReg(cg, NULL, inputAddressReg, 4));
+
+   /* Initialize maskReg with 0x00ff00ff00ff00ff */
+   generateTrg1ImmInstruction(cg, TR::InstOpCode::lis, node, maskReg, 0xFF);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::ori, node, maskReg, maskReg, 0xFF);
+   generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldimi, node, maskReg, maskReg, 32, CONSTANT64(0xFFFFFFFF00000000));
+
+   generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldimi, node, tempReg, tempReg, 24, CONSTANT64(0x00FFFFFFFF000000));
+   generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldimi, node, tempReg, tempReg, 16, CONSTANT64(0x000000FFFFFF0000));
+   generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldimi, node, tempReg, tempReg,  8, CONSTANT64(0x0000000000FFFF00));
+   generateTrg1Src2Instruction(cg, TR::InstOpCode::AND, node, tempReg, tempReg, maskReg);
+
+   generateMemSrc1Instruction(cg, TR::InstOpCode::stdx, node, TR::MemoryReference::createWithIndexReg(cg, NULL, outputAddressReg, 8), tempReg);
+
+   /* Update remainingReg, jump to the end if 0. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, remainingReg, remainingReg, -4);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 0);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, condReg);
+
+   /* 4 bytes were loaded and 8 bytes were stored so bump up inputAddressReg and outputAddressReg by those amounts. */
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, inputAddressReg, inputAddressReg, 4);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, outputAddressReg, outputAddressReg, 8);
+
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, load1Label, NULL);
+
+   /*
+    * Unrolled byte by byte section.
+    * No more than 3 bytes left to be processed at this point.
+    * They are individually loaded, zero extended and stored by as a char.
+    */
+   generateTrg1MemInstruction(cg, TR::InstOpCode::lbz, node, tempReg, TR::MemoryReference::createWithDisplacement(cg, inputAddressReg, 0, 1));
+   generateMemSrc1Instruction(cg, TR::InstOpCode::sth, node, TR::MemoryReference::createWithDisplacement(cg, outputAddressReg, 0, 2), tempReg);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, remainingReg, remainingReg, -1);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 0);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, condReg);
+
+   generateTrg1MemInstruction(cg, TR::InstOpCode::lbz, node, tempReg, TR::MemoryReference::createWithDisplacement(cg, inputAddressReg, 1, 1));
+   generateMemSrc1Instruction(cg, TR::InstOpCode::sth, node, TR::MemoryReference::createWithDisplacement(cg, outputAddressReg, 2, 2), tempReg);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, remainingReg, remainingReg, -1);
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::cmpi4, node, condReg, remainingReg, 0);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, condReg);
+
+   generateTrg1MemInstruction(cg, TR::InstOpCode::lbz, node, tempReg, TR::MemoryReference::createWithDisplacement(cg, inputAddressReg, 2, 1));
+   generateMemSrc1Instruction(cg, TR::InstOpCode::sth, node, TR::MemoryReference::createWithDisplacement(cg, outputAddressReg, 4, 2), tempReg);
+
+   /* Everything is done. */
+   generateDepLabelInstruction(cg, TR::InstOpCode::label, node, doneLabel, dependencies);
+   doneLabel->setEndInternalControlFlow();
+
+   dependencies->stopUsingDepRegs(cg);
+
+   for (int32_t i = 0; i < node->getNumChildren(); i++)
+      {
+      cg->decReferenceCount(node->getChild(i));
+      }
+
+   return true;
+   }
+
 /*
  * Arraycopy evaluator needs a version of inlineArrayCopy that can be used inside internal control flow. For this version of inlineArrayCopy, registers must
  * be allocated outside of this function so the dependency at the end of the control flow knows about them.
@@ -11798,6 +12062,18 @@ J9::Power::CodeGenerator::inlineDirectCall(TR::Node *node, TR::Register *&result
             else
                resultReg = inlineIntrinsicIndexOf(node, cg, isLatin1);
             return resultReg != nullptr;
+            }
+         break;
+
+      case TR::java_lang_StringLatin1_inflate:
+         if (cg->getSupportsInlineStringLatin1Inflate())
+            {
+            bool result = inlineIntrinsicInflate(node, cg);
+            if (result)
+               {
+               resultReg = nullptr;
+               }
+            return result;
             }
          break;
 

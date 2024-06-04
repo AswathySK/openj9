@@ -940,19 +940,9 @@ TR_J9InlinerPolicy::genCodeForUnsafeGetPut(TR::Node* unsafeAddress,
    // If we need conversion or java/lang/Class is not loaded yet, we generate old sequence of tests
    if (conversionNeeded || javaLangClass == NULL)
       {
-      TR::Node *isArrayField = NULL;
-      if (comp()->target().is32Bit())
-         {
-         isArrayField = TR::Node::createWithSymRef(TR::iloadi, 1, 1, vftLoad, comp()->getSymRefTab()->findOrCreateClassAndDepthFlagsSymbolRef());
-         }
-      else
-         {
-         isArrayField = TR::Node::createWithSymRef(TR::lloadi, 1, 1, vftLoad, comp()->getSymRefTab()->findOrCreateClassAndDepthFlagsSymbolRef());
-         isArrayField = TR::Node::create(TR::l2i, 1, isArrayField);
-         }
-      TR::Node *andConstNode = TR::Node::create(isArrayField, TR::iconst, 0, TR::Compiler->cls.flagValueForArrayCheck(comp()));
-      TR::Node * andNode   = TR::Node::create(TR::iand, 2, isArrayField, andConstNode);
-      TR::Node *isArrayNode = TR::Node::createif(TR::ificmpeq, andNode, andConstNode, NULL);
+      TR::Node *testIsArrayFlag = comp()->fej9()->testIsClassArrayType(vftLoad);
+      TR::Node *flagConstNode = TR::Node::create(testIsArrayFlag, TR::iconst, 0, TR::Compiler->cls.flagValueForArrayCheck(comp()));
+      TR::Node *isArrayNode = TR::Node::createif(TR::ificmpeq, testIsArrayFlag, flagConstNode, NULL);
       isArrayTreeTop = TR::TreeTop::create(comp(), isArrayNode, NULL, NULL);
       isArrayBlock = TR::Block::createEmptyBlock(vftLoad, comp(), indirectAccessBlock->getFrequency());
       isArrayBlock->append(isArrayTreeTop);
@@ -2533,6 +2523,14 @@ TR_J9InlinerPolicy::willBeInlinedInCodeGen(TR::RecognizedMethod method)
 bool
 TR_J9InlinerPolicy::skipHCRGuardForCallee(TR_ResolvedMethod *callee)
    {
+   // Skip HCR guards for callees annotated with @IntrinsicCandidate, and ignore any
+   // later redefinition as these methods are meant to have special handling for
+   // performance reasons. @IntrinsicCandidate annotation is only used in the JCL.
+   // We would only be inlining @IntrinsicCandidate methods because we do not
+   // have any special handling for them yet.
+   if (comp()->fej9()->isIntrinsicCandidate(callee))
+      return true;
+
    // TODO: This is a very hacky way of avoiding HCR guards on sensitive String Compression methods which allows idiom
    // recognition to work. It also avoids unnecessary block splitting in performance sensitive methods for String
    // operations that are quite common. Can we do something better?
@@ -4862,6 +4860,14 @@ TR_J9InlinerPolicy::supressInliningRecognizedInitialCallee(TR_CallSite* callsite
             return true;
             }
          break;
+      case TR::jdk_internal_util_ArraysSupport_vectorizedHashCode:
+         {
+         if (comp->cg()->getSupportsInlineVectorizedHashCode())
+            {
+            return true;
+            }
+         break;
+         }
       case TR::java_lang_StringLatin1_inflate:
          if (comp->cg()->getSupportsInlineStringLatin1Inflate())
             {

@@ -455,17 +455,6 @@ public:
     */
    virtual TR::KnownObjectTable::Index getMethodHandleTableEntryIndex(TR::Compilation *comp, TR::KnownObjectTable::Index vhIndex, TR::KnownObjectTable::Index adIndex);
 
-   /**
-    * @brief Get the Direct VarHandle target object index. This function evaluates the result of
-    * java/lang/invoke/Invokers.directVarHandleTarget and java/lang/invoke/VarHandle.asDirect
-    * at compile time.
-    *
-    * @param comp the compilation
-    * @param vhIndex the VarHandle object
-    * @return TR::KnownObjectTable::Index the direct VH object index if success, TR::KnownObjectTable::UNKNOWN otherwise
-    */
-   TR::KnownObjectTable::Index getDirectVarHandleTargetIndex(TR::Compilation * comp, TR::KnownObjectTable::Index vhIndex);
-
    virtual TR::Method * createMethod(TR_Memory *, TR_OpaqueClassBlock *, int32_t);
    virtual TR_ResolvedMethod * createResolvedMethod(TR_Memory *, TR_OpaqueMethodBlock *, TR_ResolvedMethod * = 0, TR_OpaqueClassBlock * = 0);
    virtual TR_ResolvedMethod * createResolvedMethodWithVTableSlot(TR_Memory *, uint32_t vTableSlot, TR_OpaqueMethodBlock * aMethod, TR_ResolvedMethod * owningMethod = 0, TR_OpaqueClassBlock * classForNewInstance = 0);
@@ -686,7 +675,7 @@ public:
    virtual uintptr_t         getConstantPoolFromClass(TR_OpaqueClassBlock *);
 
    virtual uintptr_t         getOffsetOfIsArrayFieldFromRomClass();
-   virtual uintptr_t         getOffsetOfClassAndDepthFlags();
+   virtual uintptr_t         getOffsetOfClassDepthAndFlags();
    virtual uintptr_t         getOffsetOfClassFlags();
    virtual uintptr_t         getOffsetOfArrayComponentTypeField();
    virtual uintptr_t         getOffsetOfIndexableSizeField();
@@ -1289,6 +1278,44 @@ public:
     *         or zero otherwise
     */
    TR::Node * testIsClassIdentityType(TR::Node *j9ClassRefNode);
+
+   /**
+    * \brief Generate IL to load the value of the \c componentType field of the specified
+    *        \ref J9ArrayClass.  The class must be a \ref J9ArrayClass or garbage will be loaded.
+    *        IL might load this field unconditionally, but must only dereference the loaded value
+    *        if the class actually is an array class.
+    * \param j9ClassRefNode A node representing a reference to a \ref J9Class
+    * \return A \ref TR::Node that loads the value of the \c componentType field
+    */
+   TR::Node * loadArrayClassComponentType(TR::Node *j9ClassRefNode);
+
+   /**
+    * \brief Generate IL to load the value of the \c classDepthAndFlags field of the
+    *        specified \ref J9Class.
+    * \param j9ClassRefNode A node representing a reference to a \ref J9Class
+    * \return A \ref TR::Node that loads the value of the \c classDepthAndFlags field
+    */
+   TR::Node * loadClassDepthAndFlags(TR::Node *j9ClassRefNode);
+
+   /**
+    * \brief Generate IL to load the \c classDepthAndFlags field of the specified
+    *        \ref J9Class, and apply the mask specified by \c flagsToTest.
+    * \param j9ClassRefNode A node representing a reference to a \ref J9Class
+    * \param flagsToTest Flags to use as a mask for the \ref classAndFlags field
+    * \return A \ref TR::Node that produces the result of loading \c classDepthAndFlags
+    *         and applying the \c flagsToTest mask to it.
+    */
+   TR::Node * testAreSomeClassDepthAndFlagsSet(TR::Node *j9ClassRefNode, uint32_t flagsToTest);
+
+   /**
+    * \brief Generate IL to test whether the specified \ref J9Class is an array class.
+    * \param j9ClassRefNode A node representing a reference to a \ref J9Class
+    * \return A \ref TR::Node that will evaluate to zero if the specified \ref J9Class
+    *         is not an array class, or the value of
+    *         \c TR::Compiler->cls.flagValueForArrayCheck (which is non-zero) if it is
+    *         an array class.
+    */
+   TR::Node * testIsClassArrayType(TR::Node *j9ClassRefNode);
 
    /**
     * \brief Test whether any of the specified flags is set on the array's component class

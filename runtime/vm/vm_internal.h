@@ -596,6 +596,8 @@ javaOffloadSwitchOffWithReason(J9VMThread *currentThread, UDATA reason);
 
 #endif /* defined(J9VM_OPT_JAVA_OFFLOAD_SUPPORT) */
 
+#if defined(J9VM_OPT_JFR)
+
 /* ------------------- jfr.cpp ------------------- */
 
 /**
@@ -615,6 +617,29 @@ initializeJFR(J9JavaVM *vm);
  */
 void
 jfrExecutionSample(J9VMThread *currentThread);
+
+/**
+ * Begin event iteration in a JFR buffer.
+ *
+ * @param buffer[in] pointer to the buffer
+ * @param walkState[in] pointer to the walk state
+ *
+ * @returns pointer to the first event in the buffer or NULL if the buffer is empty
+ */
+J9JFREvent*
+jfrBufferStartDo(J9JFRBuffer *buffer, J9JFRBufferWalkState *walkState);
+
+/**
+ * Continue event iteration in a JFR buffer.
+ *
+ * @param walkState[in] pointer to the walk state
+ *
+ * @returns pointer to the next event in the buffer or NULL if there are no more
+ */
+J9JFREvent*
+jfrBufferNextDo(J9JFRBufferWalkState *walkState);
+
+#endif /* defined(J9VM_OPT_JFR) */
 
 /* ------------------- ArrayCopyHelpers.cpp ----------------- */
 

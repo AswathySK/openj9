@@ -46,6 +46,9 @@ import com.ibm.oti.reflect.TypeAnnotationParser;
 import java.io.InputStream;
 /*[ENDIF] JAVA_SPEC_VERSION >= 20 */
 import java.io.IOException;
+/*[IF JAVA_SPEC_VERSION >= 23]*/
+import java.io.PrintStream;
+/*[ENDIF] JAVA_SPEC_VERSION >= 23 */
 import java.lang.module.ModuleDescriptor;
 import java.net.URL;
 import java.net.URI;
@@ -562,6 +565,13 @@ final class Access implements JavaLangAccess {
 	public int stringSize(long x) {
 		return Long.stringSize(x);
 	}
+
+	/*[IF !INLINE-TYPES]*/
+	@Override
+	/*[ENDIF] !INLINE-TYPES */
+	public PrintStream initialSystemErr() {
+		return System.initialErr;
+	}
 /*[ENDIF] JAVA_SPEC_VERSION >= 23 */
 
 	public long findNative(ClassLoader loader, String entryName) {
@@ -797,31 +807,6 @@ final class Access implements JavaLangAccess {
 /*[ENDIF] JAVA_SPEC_VERSION >= 22 */
 
 /*[IF INLINE-TYPES]*/
-	@Override
-	public boolean isPrimitiveClass(Class<?> c) {
-		return c.isPrimitiveClass();
-	}
-
-	@Override
-	public Class<?> asPrimaryType(Class<?> c) {
-		return c.asPrimaryType();
-	}
-
-	@Override
-	public Class<?> asValueType(Class<?> c) {
-		return c.asValueType();
-	}
-
-	@Override
-	public boolean isPrimaryType(Class<?> c) {
-		return c.isPrimaryType();
-	}
-
-	@Override
-	public boolean isPrimitiveValueType(Class<?> c) {
-		return c.isPrimitiveValueType();
-	}
-
 	@Override
 	public int classFileFormatVersion(Class<?> c) {
 		return c.getClassFileVersion();

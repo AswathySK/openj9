@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright IBM Corp. and others 2000
+ * Copyright IBM Corp. and others 2024
  *
  * This program and the accompanying materials are made available under
  * the terms of the Eclipse Public License 2.0 which accompanies this
@@ -19,38 +19,21 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR Apache-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0 OR GPL-2.0-only WITH OpenJDK-assembly-exception-1.0
  *******************************************************************************/
+package org.openj9.test.classtests;
 
-#ifndef PERSISTENTALLOCATORKIT_HPP
-#define PERSISTENTALLOCATORKIT_HPP
+import java.io.IOException;
 
-#pragma once
-
-namespace J9 { struct PersistentAllocatorKit; }
-namespace TR { using J9::PersistentAllocatorKit; }
-
-#include <stddef.h>
-
-extern "C" {
-struct J9JavaVM;
+public class ShareOrphanTest {
+	public static void main(String[] args) throws Exception {
+		new ShareOrphanTest().RunTest();
+		System.out.println("ShareOrphanTest Finished");
+	}
+	public void RunTest() throws Exception {
+		boolean passed = false;
+		CustomClassLoader loader = new CustomClassLoader();
+		String className = "org.openj9.test.classtests.UnsafeBootClass";
+		Class<?> clz = Class.forName(className, true, loader);
+		className = "org.openj9.test.classtests.AnonClassAndUnsafeClassTest";
+		clz = Class.forName(className, true, loader);
+	}
 }
-
-namespace J9
-{
-
-struct PersistentAllocatorKit
-   {
-   PersistentAllocatorKit(size_t const minimumSegmentSize, J9JavaVM &javaVM, uint32_t memType = 0) :
-      minimumSegmentSize(minimumSegmentSize),
-      javaVM(javaVM),
-      memoryType(memType)
-      {
-      }
-
-   size_t const minimumSegmentSize;
-   J9JavaVM &javaVM;
-   uint32_t memoryType; // extra flags to be passed to the persistent allocator
-   };
-
-}
-
-#endif // PERSISTENTALLOCATORKIT_HPP

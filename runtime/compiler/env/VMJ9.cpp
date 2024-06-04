@@ -1603,7 +1603,7 @@ UDATA TR_J9VMBase::getOffsetOfClassFromJavaLangClassField()
 
 UDATA TR_J9VMBase::getOffsetOfRamStaticsFromClassField()            {return offsetof(J9Class, ramStatics);}
 UDATA TR_J9VMBase::getOffsetOfIsArrayFieldFromRomClass()            {return offsetof(J9ROMClass, modifiers);}
-UDATA TR_J9VMBase::getOffsetOfClassAndDepthFlags()                  {return offsetof(J9Class, classDepthAndFlags);}
+UDATA TR_J9VMBase::getOffsetOfClassDepthAndFlags()                  {return offsetof(J9Class, classDepthAndFlags);}
 UDATA TR_J9VMBase::getOffsetOfClassFlags()                          {return offsetof(J9Class, classFlags);}
 UDATA TR_J9VMBase::getOffsetOfArrayComponentTypeField()             {return offsetof(J9ArrayClass, componentType);}
 UDATA TR_J9VMBase::constReleaseVMAccessOutOfLineMask()              {return J9_PUBLIC_FLAGS_VMACCESS_RELEASE_BITS;}
@@ -2902,13 +2902,56 @@ TR_J9VMBase::testIsClassIdentityType(TR::Node *j9ClassRefNode)
    }
 
 TR::Node *
+TR_J9VMBase::loadClassDepthAndFlags(TR::Node *j9ClassRefNode)
+   {
+   TR::SymbolReference *classDepthAndFlagsSymRef = TR::comp()->getSymRefTab()->findOrCreateClassDepthAndFlagsSymbolRef();
+
+   TR::Node *classFlagsNode = NULL;
+
+   if (TR::comp()->target().is32Bit())
+      {
+      classFlagsNode = TR::Node::createWithSymRef(TR::iloadi, 1, 1, j9ClassRefNode, classDepthAndFlagsSymRef);
+      }
+   else
+      {
+      classFlagsNode = TR::Node::createWithSymRef(TR::lloadi, 1, 1, j9ClassRefNode, classDepthAndFlagsSymRef);
+      classFlagsNode = TR::Node::create(TR::l2i, 1, classFlagsNode);
+      }
+
+   return classFlagsNode;
+   }
+
+TR::Node *
+TR_J9VMBase::testAreSomeClassDepthAndFlagsSet(TR::Node *j9ClassRefNode, uint32_t flagsToTest)
+   {
+   TR::Node *classFlags = loadClassDepthAndFlags(j9ClassRefNode);
+   TR::Node *maskedFlags = TR::Node::create(TR::iand, 2, classFlags, TR::Node::iconst(j9ClassRefNode, flagsToTest));
+
+   return maskedFlags;
+   }
+
+TR::Node *
+TR_J9VMBase::testIsClassArrayType(TR::Node *j9ClassRefNode)
+   {
+   return testAreSomeClassDepthAndFlagsSet(j9ClassRefNode, getFlagValueForArrayCheck());
+   }
+
+TR::Node *
+TR_J9VMBase::loadArrayClassComponentType(TR::Node *j9ClassRefNode)
+   {
+   TR::SymbolReference *arrayCompSymRef = TR::comp()->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
+   TR::Node *arrayCompClass = TR::Node::createWithSymRef(TR::aloadi, 1, 1, j9ClassRefNode, arrayCompSymRef);
+
+   return arrayCompClass;
+   }
+
+TR::Node *
 TR_J9VMBase::checkSomeArrayCompClassFlags(TR::Node *arrayBaseAddressNode, TR::ILOpCodes ifCmpOp, uint32_t flagsToTest)
    {
    TR::SymbolReference *vftSymRef = TR::comp()->getSymRefTab()->findOrCreateVftSymbolRef();
-   TR::SymbolReference *arrayCompSymRef = TR::comp()->getSymRefTab()->findOrCreateArrayComponentTypeSymbolRef();
-
    TR::Node *vft = TR::Node::createWithSymRef(TR::aloadi, 1, 1, arrayBaseAddressNode, vftSymRef);
-   TR::Node *arrayCompClass = TR::Node::createWithSymRef(TR::aloadi, 1, 1, vft, arrayCompSymRef);
+
+   TR::Node *arrayCompClass = loadArrayClassComponentType(vft);
    TR::Node *maskedFlagsNode = testAreSomeClassFlagsSet(arrayCompClass, flagsToTest);
    TR::Node *ifNode = TR::Node::createif(ifCmpOp, maskedFlagsNode, TR::Node::iconst(arrayBaseAddressNode, 0));
 
@@ -5167,21 +5210,6 @@ TR_J9VMBase::getMethodHandleTableEntryIndex(TR::Compilation *comp, TR::KnownObje
    return result;
    }
 
-
-TR::KnownObjectTable::Index
-TR_J9VMBase::getDirectVarHandleTargetIndex(TR::Compilation* comp, TR::KnownObjectTable::Index vhIndex)
-   {
-   // Since IndirectVarHandle.asDirect can override VarHandle.asDirect, an exact type check here is necessary
-   const char * varHandleClassName = "java/lang/invoke/VarHandle";
-   TR_OpaqueClassBlock * varHandleClass =
-      getSystemClassFromClassName(varHandleClassName, strlen(varHandleClassName));
-   TR_OpaqueClassBlock * objectClass = getObjectClassFromKnownObjectIndex(comp, vhIndex);
-   if (NULL == varHandleClass || NULL == objectClass || varHandleClass != objectClass)
-      return TR::KnownObjectTable::UNKNOWN;
-
-   return vhIndex;
-   }
-
 bool
 TR_J9VMBase::isMethodHandleExpectedType(
    TR::Compilation *comp,
@@ -7408,14 +7436,14 @@ TR_J9VM::transformJavaLangClassIsArray(TR::Compilation * comp, TR::Node * callNo
    // treetop
    //   iushr
    //    iand
-   //     iloadi <classAndDepthFlags>
+   //     iloadi <ClassDepthAndFlags>
    //       aloadi <classFromJavaLangClass>
    //        aload <parm 1>         <= jlClass
    //    iconst J9AccClassArray
    //   iconst shiftAmount
 
-   int andMask = comp->fej9()->getFlagValueForArrayCheck();
-   TR::Node * classFlag, *jlClass, * andConstNode;
+   int flagMask = comp->fej9()->getFlagValueForArrayCheck();
+   TR::Node * classFlagNode, *jlClass;
    TR::SymbolReferenceTable *symRefTab = comp->getSymRefTab();
 
    jlClass = callNode->getFirstChild();
@@ -7435,26 +7463,16 @@ TR_J9VM::transformJavaLangClassIsArray(TR::Compilation * comp, TR::Node * callNo
 
    TR::Node * vftLoad = TR::Node::createWithSymRef(callNode, TR::aloadi, 1, jlClass, comp->getSymRefTab()->findOrCreateClassFromJavaLangClassSymbolRef());
 
-   if (comp->target().is32Bit())
-      {
-      classFlag = TR::Node::createWithSymRef(callNode, TR::iloadi, 1, vftLoad, symRefTab->findOrCreateClassAndDepthFlagsSymbolRef());
-      }
-   else
-      {
-      classFlag = TR::Node::createWithSymRef(callNode, TR::lloadi, 1, vftLoad, symRefTab->findOrCreateClassAndDepthFlagsSymbolRef());
-      classFlag = TR::Node::create(callNode, TR::l2i, 1, classFlag);
-      }
+   classFlagNode = testIsClassArrayType(vftLoad);
 
    // Decrement the ref count of jlClass since the call is going to be transmuted and its first child is not needed anymore
    callNode->getAndDecChild(0);
    TR::Node::recreate(callNode, TR::iushr);
    callNode->setNumChildren(2);
 
-   andConstNode = TR::Node::create(callNode, TR::iconst, 0, andMask);
-   TR::Node * andNode   = TR::Node::create(TR::iand, 2, classFlag, andConstNode);
-   callNode->setAndIncChild(0, andNode);
+   callNode->setAndIncChild(0, classFlagNode);
 
-   int32_t shiftAmount = trailingZeroes(andMask);
+   int32_t shiftAmount = trailingZeroes(flagMask);
    callNode->setAndIncChild(1, TR::Node::iconst(callNode, shiftAmount));
    }
 
@@ -7642,8 +7660,55 @@ TR_J9VM::inlineNativeCall(TR::Compilation * comp, TR::TreeTop * callNodeTreeTop,
          TR::Node::recreate(callNode, TR::aloadi);
          callNode->setSymbolReference(comp->getSymRefTab()->findOrCreateVftSymbolRef());
          callNode = TR::Node::createWithSymRef(TR::aloadi, 1, 1, callNode, comp->getSymRefTab()->findOrCreateJavaLangClassFromClassSymbolRef());
+         callNode->setIsNonNull(true);
          return callNode;
 
+      case TR::java_lang_Class_getStackClass:
+         {
+         if ((isAOT_DEPRECATED_DO_NOT_USE()
+                  && !comp->getOption(TR_UseSymbolValidationManager))
+               || !callNode->getFirstChild()->getOpCode().isLoadConst())
+            {
+            return 0;
+            }
+
+         int32_t callerIndex = callNode->getByteCodeInfo().getCallerIndex();
+         int32_t stackIndex = callNode->getFirstChild()->getInt();
+         int32_t stackIterator = 0;
+         if (stackIndex < 0)
+            return 0;
+
+         // j/l/C.getStackClass returns the class object at the stackIndex.
+         // Following loop walks stack to see if we have inlined the call chain
+         // such that we already know the J9Class* at the given constant stack
+         // index.
+         while (stackIterator != stackIndex)
+            {
+            if (callerIndex == -1)
+               break;
+            callerIndex = comp->getInlinedCallSite(callerIndex)._byteCodeInfo.getCallerIndex();
+            stackIterator++;
+            }
+
+         if (stackIterator == stackIndex)
+            {
+            J9Class *clazz = callerIndex == -1 ? reinterpret_cast<J9Class *>(comp->getJittedMethodSymbol()->getResolvedMethod()->classOfMethod()) :
+                                                 reinterpret_cast<J9Class *>(comp->getInlinedResolvedMethod(callerIndex)->containingClass());
+            int32_t classNameLength;
+            char *className = getClassNameChars(reinterpret_cast<TR_OpaqueClassBlock *>(clazz), classNameLength);
+            if (performTransformation(comp, "O^O inlineNativeCall: Optimize getStackClass call [%p] with loading Class object of %.*s at bytecode %d\n", callNode,
+               classNameLength, className, callNode->getByteCodeInfo().getByteCodeIndex()))
+               {
+               TR::Node::recreate(callNode, TR::loadaddr);
+               callNode->removeAllChildren();
+               TR::SymbolReference *callerClassSymRef = comp->getSymRefTab()->findOrCreateClassSymbol(comp->getMethodSymbol(), -1, convertClassPtrToClassOffset(clazz));
+               callNode->setSymbolReference(callerClassSymRef);
+               callNode = TR::Node::createWithSymRef(TR::aloadi, 1, 1, callNode, comp->getSymRefTab()->findOrCreateJavaLangClassFromClassSymbolRef());
+               return callNode;
+               }
+            }
+         return 0;
+         }
       // Note: these cases are not tested and thus are commented out:
       // - com.ibm.oti.vm.VM.getStackClass(int)
       // - com.ibm.oti.vm.VM.getStackClassLoader(int)
@@ -8317,13 +8382,13 @@ TR_J9VM::inlineNativeCall(TR::Compilation * comp, TR::TreeTop * callNodeTreeTop,
          case TR::com_ibm_jit_JITHelpers_getClassDepthAndFlagsFromJ9Class32:
             {
             loadOp = TR::iloadi;
-            newSymRef = comp->getSymRefTab()->findOrCreateClassAndDepthFlagsSymbolRef();
+            newSymRef = comp->getSymRefTab()->findOrCreateClassDepthAndFlagsSymbolRef();
             break;
             }
          case TR::com_ibm_jit_JITHelpers_getClassDepthAndFlagsFromJ9Class64:
             {
             loadOp = TR::lloadi;
-            newSymRef = comp->getSymRefTab()->findOrCreateClassAndDepthFlagsSymbolRef();
+            newSymRef = comp->getSymRefTab()->findOrCreateClassDepthAndFlagsSymbolRef();
             break;
             }
          case TR::com_ibm_jit_JITHelpers_getComponentTypeFromJ9Class32:

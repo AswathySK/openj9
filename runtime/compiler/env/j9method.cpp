@@ -2109,6 +2109,7 @@ void TR_ResolvedJ9Method::construct()
       {x(TR::java_lang_Class_isInstance,           "isInstance",           "(Ljava/lang/Object;)Z")},
       {x(TR::java_lang_Class_isInterface,          "isInterface",          "()Z")},
       {x(TR::java_lang_Class_cast,                 "cast",                 "(Ljava/lang/Object;)Ljava/lang/Object;")},
+      {x(TR::java_lang_Class_getStackClass,        "getStackClass",        "(I)Ljava/lang/Class;")},
       {  TR::unknownMethod}
       };
 
@@ -2635,9 +2636,13 @@ void TR_ResolvedJ9Method::construct()
 
    static X BigIntegerMethods[] =
       {
-      {x(TR::java_math_BigInteger_add,                   "add",                   "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")},
-      {x(TR::java_math_BigInteger_subtract,              "subtract",              "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")},
-      {x(TR::java_math_BigInteger_multiply,              "multiply",              "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")},
+      {x(TR::java_math_BigInteger_add,                             "add",                   "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")},
+      {x(TR::java_math_BigInteger_subtract,                        "subtract",              "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")},
+      {x(TR::java_math_BigInteger_multiply,                        "multiply",              "(Ljava/math/BigInteger;)Ljava/math/BigInteger;")},
+      {x(TR::java_math_BigInteger_init_long,                       "<init>",                "(J)V")},
+      {x(TR::java_math_BigInteger_toByteArray,                     "toByteArray",           "()[B")},
+      {x(TR::java_math_BigInteger_stripLeadingZeroBytes1,          "stripLeadingZeroBytes", "([BII)[I")},
+      {x(TR::java_math_BigInteger_stripLeadingZeroBytes2,          "stripLeadingZeroBytes", "(I[BII)[I")},
       {    TR::unknownMethod}
       };
 
@@ -3721,7 +3726,6 @@ void TR_ResolvedJ9Method::construct()
       {  TR::java_lang_invoke_Invokers_checkCustomized,            15,     "checkCustomized",             (int16_t)-1, "*"},
       {  TR::java_lang_invoke_Invokers_checkExactType,             14,     "checkExactType",              (int16_t)-1, "*"},
       {  TR::java_lang_invoke_Invokers_getCallSiteTarget,          17,     "getCallSiteTarget",           (int16_t)-1, "*"},
-      {x(TR::java_lang_invoke_Invokers_directVarHandleTarget,              "directVarHandleTarget",       "(Ljava/lang/invoke/VarHandle;)Ljava/lang/invoke/VarHandle;")},
       {x(TR::java_lang_invoke_Invokers_checkVarHandleGenericType,          "checkVarHandleGenericType",   "(Ljava/lang/invoke/VarHandle;Ljava/lang/invoke/VarHandle$AccessDescriptor;)Ljava/lang/invoke/MethodHandle;")},
       {  TR::unknownMethod}
       };
@@ -4016,6 +4020,7 @@ void TR_ResolvedJ9Method::construct()
    static X ArraysSupportMethods [] =
       {
       {x(TR::jdk_internal_util_ArraysSupport_vectorizedMismatch, "vectorizedMismatch", "(Ljava/lang/Object;JLjava/lang/Object;JII)I")},
+      {x(TR::jdk_internal_util_ArraysSupport_vectorizedHashCode, "vectorizedHashCode", "(Ljava/lang/Object;IIII)I")},
       {  TR::unknownMethod}
       };
 
