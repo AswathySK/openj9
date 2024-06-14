@@ -159,10 +159,14 @@ timeout(time: TIMEOUT_TIME.toInteger(), unit: TIMEOUT_UNITS) {
                                     def cleanDirsStr = "/tmp/${cleanDirs.join(' /tmp/')}"
                                     if (nodeLabels.contains('sw.os.windows')) {
                                         // test resources
-                                        cleanDirsStr += " ${buildWorkspace}/../../"
-                                        cleanDirsStr += cleanDirs.join(" ${buildWorkspace}/../../")
+                                        //cleanDirsStr += " ${buildWorkspace}/../../"
+                                        //cleanDirsStr += cleanDirs.join(" ${buildWorkspace}/../../")
                                         // shared classes cache
-                                        cleanDirsStr += " ${buildWorkspace}/../../javasharedresources /tmp/javasharedresources /temp/javasharedresources"
+                                        //cleanDirsStr += " ${buildWorkspace}/../../javasharedresources /tmp/javasharedresources /temp/javasharedresources"
+                                        def cleanDirsWinStr = "${buildWorkspace}/../../../../temp/${cleanDirs.join(' ${buildWorkspace}/../../../../temp/')}"
+                                        println "Directories to delete: ${cleanDirsWinStr}"
+
+                                        //sh "rm -fr ${cleanDirsWinStr}"                                        
                                     }
 
                                     // cleanup test results
