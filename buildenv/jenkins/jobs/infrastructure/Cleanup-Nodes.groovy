@@ -162,11 +162,17 @@ timeout(time: TIMEOUT_TIME.toInteger(), unit: TIMEOUT_UNITS) {
                                         cleanDirsStr += " ${buildWorkspace}/../../"
                                         cleanDirsStr += cleanDirs.join(" ${buildWorkspace}/../../")
                                         // shared classes cache
+                                        println("Workspace: ${buildWorkspace}")
                                         cleanDirsStr += " ${buildWorkspace}/../../javasharedresources /tmp/javasharedresources /temp/javasharedresources"
+                                        cleanDirsStr = cleanDirsStr.replaceAll("${buildWorkspace}/../../test\\*", "")
+                                        //sh "find . -name "testDependency*" -prune -o -name "test*" -exec rm -rf {} \;" // replace . with path
+                                        //sh "find . -name "testDependency*" -prune -o -name "test*" -exec rm -rf {} \;" 
+                                        println("Cleandirs: ${cleanDirsStr}")
+                                        sh 'find . -name "testDependency*" -prune -o -name "test*" -print'
                                     }
 
                                     // cleanup test results
-                                    sh "rm -fr ${cleanDirsStr}"
+                                    //sh "rm -fr ${cleanDirsStr}"
 
                                     // Cleanup OSX shared memory and content in /cores
                                     if (nodeLabels.contains('sw.os.mac')) {
