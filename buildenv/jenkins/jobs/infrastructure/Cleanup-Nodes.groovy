@@ -164,6 +164,7 @@ timeout(time: TIMEOUT_TIME.toInteger(), unit: TIMEOUT_UNITS) {
                                         // test resources
                                         cleanDirsStr += " ${buildWorkspace}/../../"
                                         cleanDirsStr += cleanDirs.join(" ${buildWorkspace}/../../")
+                                        cleanDirsStr += " /cygdrive/c/temp/${cleanDirs.join(' /cygdrive/c/temp/')}"
                                         // shared classes cache
                                         cleanDirsStr += " ${buildWorkspace}/../../javasharedresources /tmp/javasharedresources /temp/javasharedresources"
                                     }
